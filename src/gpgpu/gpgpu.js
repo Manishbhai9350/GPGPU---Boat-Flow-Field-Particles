@@ -12,14 +12,14 @@ const DefualtVertexShader = `
         gl_Position = vec4(position,1.0);
     }
 `;
-const DefualtFragmentShader = `
+const DefualtComputeShader = `
     void main(){
         gl_FragColor = vec4(1.0,0.0,0.0,1.0);
     }
 `;
 
 export class GPGPU {
-  fragmentShader = "";
+  computeShader = "";
   target1 = null;
   target2 = null;
   quad = null;
@@ -33,11 +33,11 @@ export class GPGPU {
   };
 
   constructor({
-    fragmentShader = DefualtFragmentShader,
+    computeShader = DefualtComputeShader,
     uniforms = {},
     materialOptions = {},
     renderer = null,
-    size = 128,
+    size,
     initialTexture,
   }) {
     this.size = size;
@@ -45,6 +45,7 @@ export class GPGPU {
       ...this.uniforms,
       ...uniforms,
     };
+
 
     this.renderer =
       renderer ||
@@ -56,7 +57,7 @@ export class GPGPU {
 
     this.material = new ShaderMaterial({
       vertexShader: DefualtVertexShader,
-      fragmentShader,
+      fragmentShader: computeShader,
       uniforms: this.uniforms,
       ...materialOptions,
     });
@@ -65,7 +66,7 @@ export class GPGPU {
 
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    this.scene.add(this.camera, this.quad);
+    this.scene.add(this.quad);
 
     const isWebGL2 = this.renderer.capabilities.isWebGL2;
 
