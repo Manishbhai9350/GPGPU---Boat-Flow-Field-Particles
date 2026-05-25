@@ -22,6 +22,8 @@ import { Points } from "three";
 import { SphereGeometry } from "three";
 import { BufferAttribute } from "three";
 import { Uniform } from "three";
+import { PlaneGeometry } from "three";
+import { MeshBasicMaterial } from "three";
 
 const { PI } = Math;
 
@@ -109,7 +111,7 @@ GLB.load("/models/boat.glb", (glb) => {
     positionData[base + 0] = srcPos.getX(i);
     positionData[base + 1] = srcPos.getY(i);
     positionData[base + 2] = srcPos.getZ(i);
-    positionData[base + 3] = Math.random() * .1;
+    positionData[base + 3] = Math.random();
   }
 
   // Initial Position Texture;
@@ -171,6 +173,7 @@ GLB.load("/models/boat.glb", (glb) => {
 
   scene.add(Particles.points);
 });
+
 
 const controls = new OrbitControls(camera, canvas);
 

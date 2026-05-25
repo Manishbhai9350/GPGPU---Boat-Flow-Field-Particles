@@ -7,30 +7,27 @@ varying vec2 vUv;
 #include ../includes/noise4d.glsl
 
 void main() {
-    // gl_FragColor = vec4(vUv,0.0,1.0);
+
     vec4 position = texture(uGPGPUTexture, vUv);
-    vec3 positionOffset = vec3(0.0);
-    float life = position.a;
+    vec4 InitialPositions = texture(uInitPositions, vUv);
+    float life = fract(position.a);
 
-    life += .01; // tune — lower = longer life
-
-    vec4 initPos = texture(uInitPositions, vUv);
     if(life >= 1.0) {
-        gl_FragColor = vec4(initPos.xyz, 0.0); // reset life to 0 not life
-        return;
+        life = 0.0;
+        position.xyz = InitialPositions.xyz;
+    } else {
+
+        vec3 flowField = vec3(snoise(vec4(position.xyz * .1 + 0.0, uTime * .1)), snoise(vec4(position.xyz + 1.0, uTime * .2)), snoise(vec4(position.xyz + 2.0, uTime * .3)));
+
+        flowField = normalize(flowField);
+        life += uDelta * .5;
+
+        float strength = snoise(vec4(InitialPositions.xyz * .2,uTime * .3 + 2.0));
+
+        position.xyz += flowField * 0.03 * strength;
     }
 
-    positionOffset.x = snoise(vec4(initPos.xyz * 0.16, uTime * .1)) * 1.35;
-    positionOffset.y = snoise(vec4(initPos.xyz * 0.38, -uTime * .1)) * 1.2;
-    positionOffset.z = snoise(vec4(initPos.xyz * 0.285, -uTime * .1)) * 1.15;
-
-    // ease out as life ends
-    float ease = sin(life * 3.14159);
-
-    position.xyz = initPos.xyz + positionOffset * ease;
-    position.w = life;
-
-    gl_FragColor = position;
+    position.a = life;
 
     gl_FragColor = position;
 }
