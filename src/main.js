@@ -15,7 +15,13 @@ import ComputeShader from "./shaders/compute/compute.glsl";
 import { Texture } from "three";
 import { DataTexture } from "three";
 import { GPGPU } from "./gpgpu/gpgpu";
-
+import { PointsMaterial } from "three";
+import { Mesh } from "three";
+import { ShaderMaterial } from "three";
+import { Points } from "three";
+import { SphereGeometry } from "three";
+import { BufferAttribute } from "three";
+import { Uniform } from "three";
 
 const { PI } = Math;
 
@@ -35,7 +41,7 @@ const renderer = new THREE.WebGLRenderer({
 const camera = new THREE.PerspectiveCamera(
   75,
   innerWidth / innerHeight,
-  1,
+  0.1,
   1000,
 );
 camera.position.set(7, 7, 10);
@@ -53,90 +59,117 @@ Draco.setDecoderConfig({ type: "wasm" });
 GLB.setDRACOLoader(Draco);
 
 const Particles = {
-  model: null,
   count: 0,
-  particles: null,
-  size: 0.1,
-  particleShaders: {
-    vertex: ParticlesVertex,
-    fragment: ParticlesFragment,
+  points: null,
+
+  material: null,
+
+  geometry: {
+    source: null,
+    buffer: null,
   },
-  computeShader: {
-    shader: ComputeShader,
-    rows: 0,
+
+  render: {
+    size: 0.1,
+    shaders: {
+      vertex: ParticlesVertex,
+      fragment: ParticlesFragment,
+    },
+  },
+
+  gpgpu: {
+    instance: null,
+    textureSize: 0,
     positionTexture: null,
+    shader: ComputeShader,
   },
-  gpgpu: null
 };
 
 GLB.load("/models/boat.glb", (glb) => {
-  Particles.model = glb.scene.children[0];
-
-  const material = new THREE.MeshBasicMaterial({
+  // Model Goemetry;
+  Particles.geometry.source = glb.scene.children[0];
+  Particles.geometry.source.material = new THREE.MeshBasicMaterial({
     vertexColors: true,
     wireframe: true,
   });
-  Particles.model.material = material;
 
-  const BoatGeo = Particles.model.geometry;
+  // Geometry For Particles;
+  const geo = Particles.geometry.source.geometry;
+  Particles.count = geo.attributes.position.count;
 
-  // The number of particles
-  Particles.count = BoatGeo.attributes.position.count;
-  Particles.computeShader.rows = Math.floor(Math.sqrt(Particles.count)) + 1;
+  const texSize = Math.floor(Math.sqrt(Particles.count)) + 1;
+  Particles.gpgpu.textureSize = texSize;
 
-  const ParticlePositions = new Float32Array(
-    Particles.computeShader.rows ** 2 * 4,
-  );
+  // Positions;
+  const positionData = new Float32Array(texSize ** 2 * 4);
+  const srcPos = geo.attributes.position;
 
-  const BoatPos = BoatGeo.attributes.position;
-  for (let i = 0; i < BoatPos.count; i++) {
-    const i0 = i * 3 + 0;
-    const i1 = i * 3 + 1;
-    const i2 = i * 3 + 2;
-    const i3 = i * 3 + 3;
-
-    const I0 = BoatPos.array[i0];
-    const I1 = BoatPos.array[i1];
-    const I2 = BoatPos.array[i2];
-    const I3 = 0;
-
-    ParticlePositions[i0] = 0;
-    ParticlePositions[i1] = 0;
-    ParticlePositions[i2] = 0;
-    ParticlePositions[i3] = 1;
-
-    // ParticlePositions[i0] = I0;
-    // ParticlePositions[i1] = I1;
-    // ParticlePositions[i2] = I2;
-    // ParticlePositions[i3] = I3;
+  for (let i = 0; i < srcPos.count; i++) {
+    const base = i * 4;
+    positionData[base + 0] = srcPos.getX(i);
+    positionData[base + 1] = srcPos.getY(i);
+    positionData[base + 2] = srcPos.getZ(i);
+    positionData[base + 3] = Math.random() * .1;
   }
 
-  const PositionTexture = new DataTexture(
-    ParticlePositions,
-    Particles.computeShader.rows,
-    Particles.computeShader.rows,
+  // Initial Position Texture;
+  const positionTexture = new DataTexture(
+    positionData,
+    texSize,
+    texSize,
     THREE.RGBAFormat,
     THREE.FloatType,
   );
+  positionTexture.needsUpdate = true;
+  positionTexture.magFilter = THREE.NearestFilter;
+  positionTexture.minFilter = THREE.NearestFilter;
+  positionTexture.wrapS = THREE.ClampToEdgeWrapping;
+  positionTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-  PositionTexture.needsUpdate = true;
+  // GPGPU Initialization;
+  Particles.gpgpu.positionTexture = positionTexture;
+  Particles.gpgpu.instance = new GPGPU({
+    computeShader: Particles.gpgpu.shader,
+    initialTexture: Particles.gpgpu.positionTexture,
+    size: Particles.gpgpu.textureSize,
+    renderer,
+  });
 
-  // Nearest filter if gpu land betwen pixel it picks the nearest pixel rather than interpolating the value;
-  PositionTexture.magFilter = PositionTexture.minFilter = THREE.NearestFilter;
-  
-  // Clamps the value to edge rather then cycling the value;
-  PositionTexture.wrapS = PositionTexture.wrapT = THREE.ClampToEdgeWrapping;
+  // Particles GPGPU UV's;
 
-  Particles.computeShader.positionTexture = PositionTexture;
+  const GPUV = new Float32Array(Particles.count * 2);
 
-  Particles.gpgpu = new GPGPU({
-    computeShader: Particles.computeShader.shader,
-    initialTexture: Particles.computeShader.positionTexture,
-    size: Particles.computeShader.rows,
-    renderer
-  })
+  for (let i = 0; i < Particles.count; i++) {
+    const base = i * 2;
+    const uvx = (i % Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
+    const uvy =
+      Math.floor(i / Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
+    GPUV[base + 0] = uvx;
+    GPUV[base + 1] = uvy;
+  }
 
-  scene.add(Particles.model);
+  // Creating Particles;
+  Particles.geometry.buffer = Particles.geometry.source.geometry;
+  Particles.geometry.buffer.setAttribute("guv", new BufferAttribute(GPUV, 2));
+  Particles.material = new ShaderMaterial({
+    vertexShader: ParticlesVertex,
+    fragmentShader: ParticlesFragment,
+    uniforms: {
+      uPositions: new Uniform(null),
+    },
+  });
+
+  // GPGPU Compute Texture;
+  Particles.gpgpu.computed = Particles.gpgpu.instance.getComputedData();
+  Particles.material.uniforms.uPositions.value = Particles.gpgpu.computed;
+
+  Particles.gpgpu.instance.addUniform("uTime", 0);
+  Particles.gpgpu.instance.addUniform("uDelta", 0);
+  Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
+
+  Particles.points = new Points(Particles.geometry.buffer, Particles.material);
+
+  scene.add(Particles.points);
 });
 
 const controls = new OrbitControls(camera, canvas);
@@ -148,11 +181,17 @@ function Animate() {
   const CurrentTime = clock.getElapsedTime();
   const DT = CurrentTime - PrevTime;
   PrevTime = CurrentTime;
-  if(Particles.gpgpu) {
-    renderer.render(Particles.gpgpu.scene,Particles.gpgpu.camera)
-  } else {
-    renderer.render(scene, camera);
+
+  if (Particles.gpgpu.instance) {
+    Particles.gpgpu.instance.updateUniform("uTime", CurrentTime);
+    Particles.gpgpu.instance.updateUniform("uDelta", DT);
+    Particles.gpgpu.instance.update(DT);
+    // re-fetch after swap, not before
+    Particles.material.uniforms.uPositions.value =
+      Particles.gpgpu.instance.getComputedData();
   }
+
+  renderer.render(scene, camera);
   requestAnimationFrame(Animate);
 }
 

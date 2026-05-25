@@ -46,7 +46,6 @@ export class GPGPU {
       ...uniforms,
     };
 
-
     this.renderer =
       renderer ||
       new THREE.WebGLRenderer({
@@ -86,7 +85,7 @@ export class GPGPU {
     }
 
     this.initRenderTargets();
-    this.renderInitially(initialTexture);
+    this.seedTexture(initialTexture);
   }
 
   initRenderTargets() {
@@ -113,11 +112,36 @@ export class GPGPU {
     this.nextRT = this.target2;
   }
 
-  renderInitially(initialTexture) {
-    this.material.uniforms.uGPGPUTexture.value = initialTexture;
-    this.renderer.setRenderTarget(this.currentRT);
+  seedTexture(initialTexture) {
+    const passThroughMat = new ShaderMaterial({
+      vertexShader: DefualtVertexShader,
+      fragmentShader: `
+      uniform sampler2D uTex;
+      varying vec2 vUv;
+      void main() { gl_FragColor = texture(uTex, vUv); }
+    `,
+      uniforms: { uTex: new Uniform(initialTexture) },
+    });
+
+    const prevMat = this.quad.material;
+    this.quad.material = passThroughMat;
+
+    this.renderer.setRenderTarget(this.target1);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(this.target2);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
+
+    this.quad.material = prevMat;
+    passThroughMat.dispose();
+  }
+
+  addUniform(key, value) {
+    this.material.uniforms[key] = { value };
+  }
+
+  updateUniform(key, value) {
+    this.material.uniforms[key].value = value;
   }
 
   update(delta) {
@@ -130,5 +154,9 @@ export class GPGPU {
     let temp = this.currentRT;
     this.currentRT = this.nextRT;
     this.nextRT = temp;
+  }
+
+  getComputedData() {
+    return this.currentRT.texture;
   }
 }
