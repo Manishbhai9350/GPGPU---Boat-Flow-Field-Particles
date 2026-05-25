@@ -4,7 +4,8 @@ uniform float uTime;
 uniform float uDelta;
 varying vec2 vUv;
 
-#include ../includes/noise4d.glsl
+#include ../includes/simplexNoise4d.glsl
+// #include ../includes/noise4d.glsl
 
 void main() {
 
@@ -17,14 +18,14 @@ void main() {
         position.xyz = InitialPositions.xyz;
     } else {
 
-        vec3 flowField = vec3(snoise(vec4(position.xyz * .1 + 0.0, uTime * .1)), snoise(vec4(position.xyz + 1.0, uTime * .2)), snoise(vec4(position.xyz + 2.0, uTime * .3)));
+        vec3 flowField = vec3(simplexNoise4d(vec4(position.xyz * .2 + 0.0, uTime * .1)), simplexNoise4d(vec4(position.xyz + 1.0, uTime * .2)), simplexNoise4d(vec4(position.xyz + 2.0, uTime * .3)));
 
         flowField = normalize(flowField);
         life += uDelta * .5;
 
-        float strength = snoise(vec4(InitialPositions.xyz * .2,uTime * .3 + 2.0));
+        float strength = simplexNoise4d(vec4(InitialPositions.xyz * .2,uTime + 2.0));
 
-        position.xyz += flowField * 0.03 * strength;
+        position.xyz += flowField * 0.01 * strength;
     }
 
     position.a = life;
