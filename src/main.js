@@ -25,8 +25,12 @@ import { Uniform } from "three";
 import { PlaneGeometry } from "three";
 import { MeshBasicMaterial } from "three";
 import { Pane } from "tweakpane";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { Group } from "three";
 
 const { PI } = Math;
+
+const IsChartogne = window.location.pathname === "/chartogne";
 
 const canvas = document.querySelector("canvas");
 
@@ -49,7 +53,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000,
 );
-camera.position.set(7, 7, 10);
+camera.position.set(4, 4, 4);
 camera.lookAt(new Vector3(0, 0, 0));
 
 const material = new THREE.MeshNormalMaterial();
@@ -90,129 +94,290 @@ const Particles = {
   },
 };
 
-GLB.load("/models/boat.glb", (glb) => {
-  // Model Goemetry;
-  Particles.geometry.source = glb.scene.children[0];
-  Particles.geometry.source.material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    wireframe: true,
-  });
+if (IsChartogne) {
+  GLB.load("/models/garden.glb", (glb) => {
+    const garden = glb.scene;
+    const geometries = [];
 
-  // Geometry For Particles;
-  const geo = Particles.geometry.source.geometry;
-  Particles.count = geo.attributes.position.count;
+    garden.traverse((child) => {
+      if (child.isMesh) {
+        // clone so you don't mutate the original
+        const geo = child.geometry.clone();
+        // apply world transform so positions are in world space
+        geo.applyMatrix4(child.matrixWorld);
+        geo.scale(15, 15, 15);
+        geometries.push(geo);
+      }
+    });
+    console.log(geometries);
+    const mg = mergeGeometries(geometries);
+    Particles.geometry.source = mg;
 
-  const texSize = Math.floor(Math.sqrt(Particles.count)) + 1;
-  Particles.gpgpu.textureSize = texSize;
+    const geo = Particles.geometry.source;
+    Particles.count = geo.attributes.position.count;
 
-  // Positions;
-  const positionData = new Float32Array(texSize ** 2 * 4);
-  const srcPos = geo.attributes.position;
+    const texSize = Math.floor(Math.sqrt(Particles.count)) + 1;
+    Particles.gpgpu.textureSize = texSize;
 
-  for (let i = 0; i < srcPos.count; i++) {
-    const base = i * 4;
-    positionData[base + 0] = srcPos.getX(i);
-    positionData[base + 1] = srcPos.getY(i);
-    positionData[base + 2] = srcPos.getZ(i);
-    positionData[base + 3] = Math.random();
-  }
+    // Positions;
+    const positionData = new Float32Array(texSize ** 2 * 4);
+    const srcPos = geo.attributes.position;
 
-  // Initial Position Texture;
-  const positionTexture = new DataTexture(
-    positionData,
-    texSize,
-    texSize,
-    THREE.RGBAFormat,
-    THREE.FloatType,
-  );
-  positionTexture.needsUpdate = true;
-  positionTexture.magFilter = THREE.NearestFilter;
-  positionTexture.minFilter = THREE.NearestFilter;
-  positionTexture.wrapS = THREE.ClampToEdgeWrapping;
-  positionTexture.wrapT = THREE.ClampToEdgeWrapping;
+    for (let i = 0; i < srcPos.count; i++) {
+      const base = i * 4;
+      positionData[base + 0] = srcPos.getX(i);
+      positionData[base + 1] = srcPos.getY(i);
+      positionData[base + 2] = srcPos.getZ(i);
+      positionData[base + 3] = Math.random();
+    }
 
-  // GPGPU Initialization;
-  Particles.gpgpu.positionTexture = positionTexture;
-  Particles.gpgpu.instance = new GPGPU({
-    computeShader: Particles.gpgpu.shader,
-    initialTexture: Particles.gpgpu.positionTexture,
-    size: Particles.gpgpu.textureSize,
-    renderer,
-  });
+    // Initial Position Texture;
+    const positionTexture = new DataTexture(
+      positionData,
+      texSize,
+      texSize,
+      THREE.RGBAFormat,
+      THREE.FloatType,
+    );
+    positionTexture.needsUpdate = true;
+    positionTexture.magFilter = THREE.NearestFilter;
+    positionTexture.minFilter = THREE.NearestFilter;
+    positionTexture.wrapS = THREE.ClampToEdgeWrapping;
+    positionTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-  // Particles GPGPU UV's;
+    // GPGPU Initialization;
+    Particles.gpgpu.positionTexture = positionTexture;
+    Particles.gpgpu.instance = new GPGPU({
+      computeShader: Particles.gpgpu.shader,
+      initialTexture: Particles.gpgpu.positionTexture,
+      size: Particles.gpgpu.textureSize,
+      renderer,
+    });
 
-  const GPUV = new Float32Array(Particles.count * 2);
+    // Particles GPGPU UV's;
 
-  for (let i = 0; i < Particles.count; i++) {
-    const base = i * 2;
-    const uvx = (i % Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
-    const uvy =
-      Math.floor(i / Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
-    GPUV[base + 0] = uvx;
-    GPUV[base + 1] = uvy;
-  }
+    const GPUV = new Float32Array(Particles.count * 2);
 
-  // Creating Particles;
-  Particles.geometry.buffer = Particles.geometry.source.geometry;
-  Particles.geometry.buffer.setAttribute("guv", new BufferAttribute(GPUV, 2));
-  Particles.material = new ShaderMaterial({
-    vertexShader: ParticlesVertex,
-    fragmentShader: ParticlesFragment,
-    uniforms: {
-      uPositions: new Uniform(null),
-    },
-  });
+    for (let i = 0; i < Particles.count; i++) {
+      const base = i * 2;
+      const uvx =
+        (i % Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
+      const uvy =
+        Math.floor(i / Particles.gpgpu.textureSize) /
+        Particles.gpgpu.textureSize;
+      GPUV[base + 0] = uvx;
+      GPUV[base + 1] = uvy;
+    }
 
-  // GPGPU Compute Texture;
-  Particles.gpgpu.computed = Particles.gpgpu.instance.getComputedData();
-  Particles.material.uniforms.uPositions.value = Particles.gpgpu.computed;
+    // Creating Particles;
+    Particles.geometry.buffer = Particles.geometry.source;
+    Particles.geometry.buffer.setAttribute("guv", new BufferAttribute(GPUV, 2));
+    Particles.material = new ShaderMaterial({
+      vertexShader: ParticlesVertex,
+      fragmentShader: ParticlesFragment,
+      // depthWrite:false,
+      transparent: true,
+      uniforms: {
+        uPositions: new Uniform(null),
+        uResolution: new Uniform(new THREE.Vector2(innerWidth, innerHeight)),
+        uSize: new Uniform(0.03),
+      },
+    });
 
-  Particles.gpgpu.instance.addUniform("uTime", 0);
-  Particles.gpgpu.instance.addUniform("uDelta", 0);
-  Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
+    // GPGPU Compute Texture;
+    Particles.gpgpu.computed = Particles.gpgpu.instance.getComputedData();
+    Particles.material.uniforms.uPositions.value = Particles.gpgpu.computed;
 
-  // GUI Uniforms
-  Particles.gpgpu.instance.addUniform("uFlowFieldInfluence", 0.5);
-  Particles.gpgpu.instance.addUniform("uFlowFieldFrequency", 0.2);
-  Particles.gpgpu.instance.addUniform("uFlowFieldSpeed", 1);
+    Particles.gpgpu.instance.addUniform("uTime", 0);
+    Particles.gpgpu.instance.addUniform("uDelta", 0);
+    Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
 
-  // GUI Bindings
-  console.log(Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"));
-  console.log(
+    // GUI Uniforms
+    Particles.gpgpu.instance.addUniform("uFlowFieldInfluence", 0.2);
+    Particles.gpgpu.instance.addUniform("uFlowFieldFrequency", 1.2);
+    Particles.gpgpu.instance.addUniform("uFlowFieldSpeed", 0.6);
+
+    // GUI Bindings
+    console.log(Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"));
+    console.log(
+      gui.addBinding(
+        Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"),
+        "value",
+        {
+          min: 0,
+          max: 1,
+          label: "Flow Field Influence",
+        },
+      ),
+    );
     gui.addBinding(
-      Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"),
+      Particles.gpgpu.instance.getUniform("uFlowFieldFrequency"),
       "value",
       {
         min: 0,
-        max: 1,
-        label: "Flow Field Influence",
+        max: 2,
+        label: "Flow Field Frequency",
       },
-    ),
-  );
-  gui.addBinding(
-    Particles.gpgpu.instance.getUniform("uFlowFieldFrequency"),
-    "value",
-    {
-      min: 0,
-      max: 20,
-      label: "Flow Field Frequency",
-    },
-  );
-  gui.addBinding(
-    Particles.gpgpu.instance.getUniform("uFlowFieldSpeed"),
-    "value",
-    {
-      min: 0,
-      max: 5,
-      label: "Flow Field Speed",
-    },
-  );
+    );
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldSpeed"),
+      "value",
+      {
+        min: 0,
+        max: 5,
+        label: "Flow Field Speed",
+      },
+    );
 
-  Particles.points = new Points(Particles.geometry.buffer, Particles.material);
+    Particles.points = new Points(
+      Particles.geometry.buffer,
+      Particles.material,
+    );
 
-  scene.add(Particles.points);
-});
+    const PGroup = new Group();
+    PGroup.add(Particles.points);
+
+    PGroup.position.set(5, 0, 5);
+    camera.position.y = 0.7;
+    // camera.position.z += 1.5
+    // camera.position.x += 1.5
+    camera.lookAt(new Vector3(0, 0, 0));
+    camera.fov = 75;
+    PGroup.rotation.y = Math.PI / 4;
+
+    document.body.style.background = `#FFFBE1`;
+
+    scene.add(PGroup);
+  });
+} else {
+  GLB.load("/models/boat.glb", (glb) => {
+    // Model Goemetry;
+    Particles.geometry.source = glb.scene.children[0];
+    // Geometry For Particles;
+    const geo = Particles.geometry.source.geometry;
+    Particles.count = geo.attributes.position.count;
+
+    const texSize = Math.floor(Math.sqrt(Particles.count)) + 1;
+    Particles.gpgpu.textureSize = texSize;
+
+    // Positions;
+    const positionData = new Float32Array(texSize ** 2 * 4);
+    const srcPos = geo.attributes.position;
+
+    for (let i = 0; i < srcPos.count; i++) {
+      const base = i * 4;
+      positionData[base + 0] = srcPos.getX(i);
+      positionData[base + 1] = srcPos.getY(i);
+      positionData[base + 2] = srcPos.getZ(i);
+      positionData[base + 3] = Math.random();
+    }
+
+    // Initial Position Texture;
+    const positionTexture = new DataTexture(
+      positionData,
+      texSize,
+      texSize,
+      THREE.RGBAFormat,
+      THREE.FloatType,
+    );
+    positionTexture.needsUpdate = true;
+    positionTexture.magFilter = THREE.NearestFilter;
+    positionTexture.minFilter = THREE.NearestFilter;
+    positionTexture.wrapS = THREE.ClampToEdgeWrapping;
+    positionTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    // GPGPU Initialization;
+    Particles.gpgpu.positionTexture = positionTexture;
+    Particles.gpgpu.instance = new GPGPU({
+      computeShader: Particles.gpgpu.shader,
+      initialTexture: Particles.gpgpu.positionTexture,
+      size: Particles.gpgpu.textureSize,
+      renderer,
+    });
+
+    // Particles GPGPU UV's;
+
+    const GPUV = new Float32Array(Particles.count * 2);
+
+    for (let i = 0; i < Particles.count; i++) {
+      const base = i * 2;
+      const uvx =
+        (i % Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
+      const uvy =
+        Math.floor(i / Particles.gpgpu.textureSize) /
+        Particles.gpgpu.textureSize;
+      GPUV[base + 0] = uvx;
+      GPUV[base + 1] = uvy;
+    }
+
+    // Creating Particles;
+    Particles.geometry.buffer = Particles.geometry.source.geometry;
+    Particles.geometry.buffer.setAttribute("guv", new BufferAttribute(GPUV, 2));
+    Particles.material = new ShaderMaterial({
+      vertexShader: ParticlesVertex,
+      fragmentShader: ParticlesFragment,
+      // depthWrite:false,
+      transparent: true,
+      uniforms: {
+        uPositions: new Uniform(null),
+        uResolution: new Uniform(new THREE.Vector2(innerWidth, innerHeight)),
+        uSize: new Uniform(0.03),
+      },
+    });
+
+    // GPGPU Compute Texture;
+    Particles.gpgpu.computed = Particles.gpgpu.instance.getComputedData();
+    Particles.material.uniforms.uPositions.value = Particles.gpgpu.computed;
+
+    Particles.gpgpu.instance.addUniform("uTime", 0);
+    Particles.gpgpu.instance.addUniform("uDelta", 0);
+    Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
+
+    // GUI Uniforms
+    Particles.gpgpu.instance.addUniform("uFlowFieldInfluence", 0.5);
+    Particles.gpgpu.instance.addUniform("uFlowFieldFrequency", 0.8);
+    Particles.gpgpu.instance.addUniform("uFlowFieldSpeed", 0.6);
+
+    // GUI Bindings
+    console.log(Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"));
+    console.log(
+      gui.addBinding(
+        Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"),
+        "value",
+        {
+          min: 0,
+          max: 1,
+          label: "Flow Field Influence",
+        },
+      ),
+    );
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldFrequency"),
+      "value",
+      {
+        min: 0,
+        max: 2,
+        label: "Flow Field Frequency",
+      },
+    );
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldSpeed"),
+      "value",
+      {
+        min: 0,
+        max: 5,
+        label: "Flow Field Speed",
+      },
+    );
+
+    Particles.points = new Points(
+      Particles.geometry.buffer,
+      Particles.material,
+    );
+
+    scene.add(Particles.points);
+  });
+}
 
 const controls = new OrbitControls(camera, canvas);
 

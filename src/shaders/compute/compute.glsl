@@ -11,12 +11,12 @@ uniform float uFlowFieldSpeed;
 // Varyings
 varying vec2 vUv;
 
-// #include ../includes/simplexNoise4d.glsl
-#include ../includes/noise4d.glsl
+#include ../includes/simplexNoise4d.glsl
+// #include ../includes/noise4d.glsl
 
-float simplexNoise4d(vec4 v) {
-    return noise4d(v);
-}
+// float simplexNoise4d(vec4 v) {
+//     return noise4d(v);
+// }
 
 void main() {
 
@@ -24,7 +24,7 @@ void main() {
     vec4 InitialPositions = texture(uInitPositions, vUv);
     float life = position.a;
 
-    float time = uTime * .2 * uFlowFieldSpeed;
+    float time = uTime * .4 * uFlowFieldSpeed;
 
     if(life >= 1.0) {
         life = fract(life);
@@ -32,12 +32,12 @@ void main() {
     } else {
 
         // Strength
-        float strength = simplexNoise4d(vec4(InitialPositions.xyz * uFlowFieldFrequency, time + 2.0));
+        float strength = simplexNoise4d(vec4(InitialPositions.xyz * .15, time * 2.0));
         float influence = (uFlowFieldInfluence - .5) * -2.0;
-        strength = smoothstep(influence,1.0,strength);
+        strength = smoothstep(influence, 1.0, strength);
 
         // Flow Field
-        vec3 flowField = vec3(simplexNoise4d(vec4(position.xyz + 0.0, time + 1.0)), simplexNoise4d(vec4(position.xyz + 1.0, time + 2.0)), simplexNoise4d(vec4(position.xyz + 2.0, time + 3.0)));
+        vec3 flowField = vec3(simplexNoise4d(vec4(position.xyz * uFlowFieldFrequency + 0.0, time + 1.0)), simplexNoise4d(vec4(position.xyz * uFlowFieldFrequency + 1.0, time + 2.0)), simplexNoise4d(vec4(position.xyz * uFlowFieldFrequency + 2.0, time + 3.0)));
         flowField = normalize(flowField);
         position.xyz += flowField * uDelta * strength * 0.6;
 
