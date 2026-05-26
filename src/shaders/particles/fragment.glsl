@@ -11,6 +11,6 @@ void main() {
     // gl_FragColor = vColor;
     float pointSZ = 1.0 - smoothstep(0.8, 1.0, computeTexture.a);
 
-    // gl_FragColor = vec4(pointSZ, 0.0, 0.0, pointSZ);
+    // gl_FragColor = vec4(computeTexture.a, 0.0, 0.0,0.0);
     gl_FragColor = vColor;
 }

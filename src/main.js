@@ -24,6 +24,7 @@ import { BufferAttribute } from "three";
 import { Uniform } from "three";
 import { PlaneGeometry } from "three";
 import { MeshBasicMaterial } from "three";
+import { Pane } from "tweakpane";
 
 const { PI } = Math;
 
@@ -31,6 +32,8 @@ const canvas = document.querySelector("canvas");
 
 canvas.width = innerWidth;
 canvas.height = innerHeight;
+
+const gui = new Pane();
 
 const scene = new THREE.Scene();
 
@@ -169,11 +172,47 @@ GLB.load("/models/boat.glb", (glb) => {
   Particles.gpgpu.instance.addUniform("uDelta", 0);
   Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
 
+  // GUI Uniforms
+  Particles.gpgpu.instance.addUniform("uFlowFieldInfluence", 0.5);
+  Particles.gpgpu.instance.addUniform("uFlowFieldFrequency", 0.2);
+  Particles.gpgpu.instance.addUniform("uFlowFieldSpeed", 1);
+
+  // GUI Bindings
+  console.log(Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"));
+  console.log(
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"),
+      "value",
+      {
+        min: 0,
+        max: 1,
+        label: "Flow Field Influence",
+      },
+    ),
+  );
+  gui.addBinding(
+    Particles.gpgpu.instance.getUniform("uFlowFieldFrequency"),
+    "value",
+    {
+      min: 0,
+      max: 20,
+      label: "Flow Field Frequency",
+    },
+  );
+  gui.addBinding(
+    Particles.gpgpu.instance.getUniform("uFlowFieldSpeed"),
+    "value",
+    {
+      min: 0,
+      max: 5,
+      label: "Flow Field Speed",
+    },
+  );
+
   Particles.points = new Points(Particles.geometry.buffer, Particles.material);
 
   scene.add(Particles.points);
 });
-
 
 const controls = new OrbitControls(camera, canvas);
 

@@ -143,6 +143,10 @@ export class GPGPU {
   updateUniform(key, value) {
     this.material.uniforms[key].value = value;
   }
+  
+  getUniform(key){
+    return this.material.uniforms[key];
+  }
 
   update(delta) {
     this.material.uniforms.uGPGPUTexture.value = this.currentRT.texture;
@@ -150,6 +154,7 @@ export class GPGPU {
     this.renderer.setRenderTarget(this.nextRT);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
+
 
     let temp = this.currentRT;
     this.currentRT = this.nextRT;
