@@ -1,7 +1,12 @@
+// Varyings
 varying vec4 vColor;
 varying vec2 vGuv;
+varying vec2 vScreenUV;
 
+
+// Uniforms 
 uniform vec2 uResolution;
+uniform sampler2D uMask;
 uniform sampler2D uPositions;
 
 void main() {
@@ -18,9 +23,13 @@ void main() {
     }
 
     // gl_FragColor = vec4(computeTexture.a, 0.0, 0.0,1.0);
-    // gl_FragColor = vec4(gl_PointCoord, 0.0,1.0);
-    // gl_FragColor = vec4(vec3(l),1.0);
+    // gl_FragColor = vec4(vScreenUV, 0.0,1.0);
+    // gl_FragColor = vec4(gl_PointCoord,1.0);
     gl_FragColor = vColor;
+
+    // Masking
+    float mask = texture(uMask,vScreenUV).r;
+    gl_FragColor.a *= mask;
 
     #include <colorspace_fragment>
     #include <tonemapping_fragment>

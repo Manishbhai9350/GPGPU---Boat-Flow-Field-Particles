@@ -31,6 +31,7 @@ import { Group } from "three";
 const { PI } = Math;
 
 const IsChartogne = window.location.pathname === "/chartogne";
+const IsForest = window.location.pathname === "/forest";
 
 const canvas = document.querySelector("canvas");
 
@@ -61,11 +62,13 @@ const material = new THREE.MeshNormalMaterial();
 const Manager = new THREE.LoadingManager();
 const Draco = new DRACOLoader(Manager);
 const GLB = new GLTFLoader(Manager);
-const TextureLoader = new THREE.TextureLoader(Manager);
+const TLoader = new THREE.TextureLoader(Manager);
 
 Draco.setDecoderPath("/draco/");
 Draco.setDecoderConfig({ type: "wasm" });
 GLB.setDRACOLoader(Draco);
+
+const Mask = TLoader.load("/images/mask.jpg");
 
 const Particles = {
   count: 0,
@@ -94,7 +97,169 @@ const Particles = {
   },
 };
 
-if (IsChartogne) {
+if (IsForest) {
+  GLB.load("/models/baked_forest_lp.glb", (glb) => {
+    const garden = glb.scene;
+    const geometries = [];
+
+    garden.traverse((child) => {
+      if (child.isMesh) {
+        // clone so you don't mutate the original
+        const geo = child.geometry.clone();
+        // apply world transform so positions are in world space
+        geo.applyMatrix4(child.matrixWorld);
+        geo.scale(1, 1, 1);
+        geometries.push(geo);
+      }
+    });
+    console.log(geometries);
+    const mg = mergeGeometries(geometries);
+    Particles.geometry.source = mg;
+
+    const geo = Particles.geometry.source;
+    Particles.count = geo.attributes.position.count;
+
+    const texSize = Math.floor(Math.sqrt(Particles.count)) + 1;
+    Particles.gpgpu.textureSize = texSize;
+
+    // Positions;
+    const positionData = new Float32Array(texSize ** 2 * 4);
+    const srcPos = geo.attributes.position;
+
+    for (let i = 0; i < srcPos.count; i++) {
+      const base = i * 4;
+      positionData[base + 0] = srcPos.getX(i);
+      positionData[base + 1] = srcPos.getY(i);
+      positionData[base + 2] = srcPos.getZ(i);
+      positionData[base + 3] = Math.random();
+    }
+
+    // Initial Position Texture;
+    const positionTexture = new DataTexture(
+      positionData,
+      texSize,
+      texSize,
+      THREE.RGBAFormat,
+      THREE.FloatType,
+    );
+    positionTexture.needsUpdate = true;
+    positionTexture.magFilter = THREE.NearestFilter;
+    positionTexture.minFilter = THREE.NearestFilter;
+    positionTexture.wrapS = THREE.ClampToEdgeWrapping;
+    positionTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    // GPGPU Initialization;
+    Particles.gpgpu.positionTexture = positionTexture;
+    Particles.gpgpu.instance = new GPGPU({
+      computeShader: Particles.gpgpu.shader,
+      initialTexture: Particles.gpgpu.positionTexture,
+      size: Particles.gpgpu.textureSize,
+      renderer,
+    });
+
+    // Particles GPGPU UV's;
+
+    const GPUV = new Float32Array(Particles.count * 2);
+
+    for (let i = 0; i < Particles.count; i++) {
+      const base = i * 2;
+      const uvx =
+        (i % Particles.gpgpu.textureSize) / Particles.gpgpu.textureSize;
+      const uvy =
+        Math.floor(i / Particles.gpgpu.textureSize) /
+        Particles.gpgpu.textureSize;
+      GPUV[base + 0] = uvx;
+      GPUV[base + 1] = uvy;
+    }
+
+    // Creating Particles;
+    Particles.geometry.buffer = Particles.geometry.source;
+    console.log(Particles.geometry.source);
+    Particles.geometry.buffer.setAttribute("guv", new BufferAttribute(GPUV, 2));
+    Particles.material = new ShaderMaterial({
+      vertexShader: ParticlesVertex,
+      fragmentShader: ParticlesFragment,
+      // depthWrite:false,
+      transparent: true,
+      uniforms: {
+        uPositions: new Uniform(null),
+        uResolution: new Uniform(new THREE.Vector2(innerWidth, innerHeight)),
+        uSize: new Uniform(0.3),
+        uMask: new Uniform(Mask),
+      },
+    });
+
+    // GPGPU Compute Texture;
+    Particles.gpgpu.computed = Particles.gpgpu.instance.getComputedData();
+    Particles.material.uniforms.uPositions.value = Particles.gpgpu.computed;
+
+    Particles.gpgpu.instance.addUniform("uTime", 0);
+    Particles.gpgpu.instance.addUniform("uDelta", 0);
+    Particles.gpgpu.instance.addUniform("uInitPositions", positionTexture);
+
+    // GUI Uniforms
+    Particles.gpgpu.instance.addUniform("uFlowFieldInfluence", 0);
+    Particles.gpgpu.instance.addUniform("uFlowFieldFrequency", 1);
+    Particles.gpgpu.instance.addUniform("uFlowFieldSpeed", 0.05);
+
+    // GUI Bindings
+    console.log(Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"));
+    console.log(
+      gui.addBinding(
+        Particles.gpgpu.instance.getUniform("uFlowFieldInfluence"),
+        "value",
+        {
+          min: 0,
+          max: 1,
+          label: "Flow Field Influence",
+        },
+      ),
+    );
+    gui.addBinding(Particles.material.uniforms.uSize, "value", {
+      min: 0,
+      max: 0.5,
+      label: "U Size",
+    });
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldFrequency"),
+      "value",
+      {
+        min: 0,
+        max: 10,
+        label: "Flow Field Frequency",
+      },
+    );
+    gui.addBinding(
+      Particles.gpgpu.instance.getUniform("uFlowFieldSpeed"),
+      "value",
+      {
+        min: 0,
+        max: 5,
+        label: "Flow Field Speed",
+      },
+    );
+
+    Particles.points = new Points(
+      Particles.geometry.buffer,
+      Particles.material,
+    );
+
+    const PGroup = new Group();
+    PGroup.add(Particles.points);
+
+    PGroup.position.set(5, 0, 5);
+    camera.position.set(14, 8, 35);
+    camera.lookAt(new Vector3(0, 0, 0));
+    camera.fov = 75;
+    PGroup.rotation.y = Math.PI / 4;
+
+    document.body.style.background = `#677550`;
+
+    gui.addBinding(document.body.style, "background");
+
+    scene.add(PGroup);
+  });
+} else if (IsChartogne) {
   GLB.load("/models/garden.glb", (glb) => {
     const garden = glb.scene;
     const geometries = [];
@@ -181,6 +346,7 @@ if (IsChartogne) {
         uPositions: new Uniform(null),
         uResolution: new Uniform(new THREE.Vector2(innerWidth, innerHeight)),
         uSize: new Uniform(0.03),
+        uMask: new Uniform(Mask),
       },
     });
 
@@ -237,13 +403,19 @@ if (IsChartogne) {
     const PGroup = new Group();
     PGroup.add(Particles.points);
 
+    // center it
+    Particles.geometry.buffer.computeBoundingBox();
+    const center = new Vector3();
+    Particles.geometry.buffer.boundingBox.getCenter(center);
+    Particles.points.position.sub(center.setScalar(2));
+
     PGroup.position.set(5, 0, 5);
     camera.position.y = 0.7;
     // camera.position.z += 1.5
     // camera.position.x += 1.5
     camera.lookAt(new Vector3(0, 0, 0));
-    camera.fov = 75;
-    PGroup.rotation.y = Math.PI / 4;
+    camera.fov = 30;
+    // PGroup.rotation.y = Math.PI / 4;
 
     document.body.style.background = `#FFFBE1`;
 
@@ -322,6 +494,7 @@ if (IsChartogne) {
         uPositions: new Uniform(null),
         uResolution: new Uniform(new THREE.Vector2(innerWidth, innerHeight)),
         uSize: new Uniform(0.03),
+        uMask: new Uniform(Mask),
       },
     });
 
@@ -379,7 +552,13 @@ if (IsChartogne) {
   });
 }
 
-const controls = new OrbitControls(camera, canvas);
+// const controls = new OrbitControls(camera, canvas);
+
+// rotate camera around origin
+const radius = camera.position.distanceTo(new Vector3(0, 0, 0));
+// Mouse tracking
+const mouse = { x: 0, y: 0 };
+const target = { x: 0, y: 0 };
 
 const clock = new Clock();
 let PrevTime = clock.getElapsedTime();
@@ -398,6 +577,15 @@ function Animate() {
       Particles.gpgpu.instance.getComputedData();
   }
 
+  // smooth lerp
+  target.x += (mouse.x - target.x) * 0.05;
+  target.y += (mouse.y - target.y) * 0.05;
+
+  camera.position.x = Math.sin(target.x * Math.PI * 0.3) * radius;
+  camera.position.z = Math.cos(target.x * Math.PI * 0.3) * radius;
+  camera.position.y = target.y * 1 + 4; // base height + tilt
+  camera.lookAt(new Vector3(0, 0, 0));
+
   renderer.render(scene, camera);
   requestAnimationFrame(Animate);
 }
@@ -411,5 +599,10 @@ function resize() {
   canvas.height = innerHeight;
   renderer.setSize(innerWidth, innerHeight);
 }
+
+window.addEventListener("mousemove", (e) => {
+  mouse.x = (e.clientX / innerWidth - 0.5) * 2; // -1 to 1
+  mouse.y = (e.clientY / innerHeight - 0.5) * 2; // -1 to 1
+});
 
 window.addEventListener("resize", resize);
